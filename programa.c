@@ -19,6 +19,7 @@ int main(int argc, char* argv[]){
 	pid_t *pacientes;
 	srand(time(NULL));
 
+	printf("Comenzando...\n");
 	//Se crea el puntero a pacientes que guardara el pid de los pacientes creados por medico
 	if(argc >= 2){
 		npacientes = atoi(argv[1]);
@@ -29,10 +30,10 @@ int main(int argc, char* argv[]){
 	//Se crea un proceso hijo del proceso principal epidemiologo
 	pid = fork();
 	if(pid == -1){
-		//Si Falla la llamada a fork()
 		perror("Llamada a fork()");
 		exit(-1);
 	}else if(pid == 0) /*MEDICO*/{
+		printf("El Medico(%d) esta esperando...\n", getpid());
 		if(signal(SIGUSR2, medicoHandler) == SIG_ERR){
 			perror("Llamada a signal");
 			exit(-1);
@@ -40,10 +41,10 @@ int main(int argc, char* argv[]){
 
 		//Espera a que el proceso epidemiologo mande la señal
 		pause();
-		printf("Creamos a los procesos pacientes\n");
 
 		//Crea a los procesos paciente
 		int darDosis, waitpaciente, reaccion, npacientesreaccion = 0, estadoPaciente;
+		printf("\n");
 		for(int i = 0; i < npacientes; i++) {
 			pidpaciente = fork();
 			if(pidpaciente == -1){
@@ -54,32 +55,35 @@ int main(int argc, char* argv[]){
 					perror("Llamada a signal");
 					exit(-1);
 				}
-				
+				//El proceso paciente espera hasta que le llegue la señal de medico
+				printf("Paciente(%d) esperando...\n", getpid());
 				pause();
 			}else{
+				sleep(0.5);
 				pacientes[i] = pidpaciente;
 			}
 		}
+		printf("\n");
 		for(int i = 0; i < npacientes; i++){
-			printf("Paciente PID: %d\n", pacientes[i]);
-		}
-		
-		for(int i = 0; i < npacientes; i++){
-			sleep(1);
-			printf("Medico vacuna al paciente %d\n", i+1);
+			printf("Medico(%d) vacuna al Paciente %d(%d)\n", getpid(), i+1, pacientes[i]);
 			
 			darDosis = kill(pacientes[i], SIGUSR1);
+
+			//Se espera hasta que uno de los procesos hijos acabe
+			
 			do{
 				waitpaciente = wait(&estadoPaciente);
 			}while(waitpaciente == -1);
+
 			reaccion = WEXITSTATUS(estadoPaciente);
-			printf("estado: %d\n", estadoPaciente);
-			printf("reaccion: %d\n", reaccion);
 			if(reaccion%2 == 0){
-				printf("Paciente ha tenido reaccion\n");
+				printf("Paciente(%d) ha tenido reaccion\n", pacientes[i]);
 				npacientesreaccion += 1;
+			}else{
+				printf("Paciente(%d) no ha tenido reaccion\n", pacientes[i]);
 			}
 		}
+		printf("\nMedico(%d) terminando...\n", getpid());
 		exit(npacientesreaccion);
 	}else /*EPIDEMIOLOGO*/{
 		npid = fork();
@@ -91,48 +95,51 @@ int main(int argc, char* argv[]){
 				perror("La señal a fallado");
 				exit(-1);
 			}
+			printf("El Farmaceutico(%d) esta esperando...\n", getpid());
 			pause();
 		}else /*EPIDEMIOLOGO*/{
 			int dosis, killestado;
+			printf("Epidemiologo(%d) pregunta a farmaceutico si hay dosis\n", getpid());
 			sleep(2);
 			killestado = kill(npid, SIGUSR1); //manda la señal al farmaceutico
-			if(killestado == -1){
-				perror("Llamada a kill()");
-				exit(-1);
-			}
 			pidwait = wait(&estado);
 			dosis = WEXITSTATUS(estado);
-			printf("Dosis : %d\n",dosis);
 			if(dosis == 0){
 				printf("No hay dosis suficiente para los pacientes\n");
-				kill(npid, SIGKILL);
+				//Se mata a los procesos hijos
 				kill(pid, SIGKILL);
 				exit(0);
 			}else{
-				estado = kill(pid, SIGUSR2);
+				printf("Hay suficientes dosis\n");
+				printf("Epidemiologo(%d) pide que medico empiece las vacunas\n", getpid());
+				int senalMedico = kill(pid, SIGUSR2);// manda la señal a medico
 				pidwait = wait(&estado);
 				if(pidwait == -1){
 					perror("Llamada a wait");
 					exit(-1);
 				}
-				printf("Se han curado %d paciente(s)\n", WEXITSTATUS(estado));
+				printf("Se han curado %d paciente(s) de %d pacientes\n", WEXITSTATUS(estado), npacientes);
 			}
 		}
 	}
+	printf("Terminando\n");
+	return 0;
 }
 
 
 void reaccionHandler(int sig){
+	//Genera un semilla que depende del proceso
 	srand(time(NULL)^getpid());
+
+	printf("Paciente(%d) ha sido vacunado, esperando reacción...\n", getpid());
 	sleep(2);
 	int reaccion = calculaAleatorios(1, 10);
-	printf("reaccionHandler: %d\n", reaccion);
-	printf("Aleatorio: %d\n", calculaAleatorios(1, 10));
 	exit(reaccion);
 }
 
 void dosisHandler(int sig){
 	int dosis = calculaAleatorios(0, 1);
+	printf("El Farmaceutico(%d) comprueba si hay suficientes dosis\n", getpid());
 	exit(dosis);
 }
 
